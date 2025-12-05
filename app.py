@@ -7,7 +7,6 @@ import seaborn as sns
 from io import BytesIO
 import plotly.graph_objects as go
 import plotly.express as px
-from sklearn.metrics import mean_squared_log_error
 
 # Настройки страницы
 st.set_page_config(
@@ -61,9 +60,6 @@ st.markdown("""
         border-radius: 10px;
         margin: 0.5rem 0;
     }
-    .stProgress > div > div > div > div {
-        background: linear-gradient(45deg, #1E3A8A, #3B82F6);
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -97,12 +93,6 @@ with st.sidebar:
     и использует алгоритмы машинного обучения 
     для точного предсказания стоимости.
     """)
-    
-    # Статистика приложения
-    st.markdown("---")
-    st.markdown("#### 📈 Статистика")
-    st.metric("Моделей доступно", len(model_files))
-    st.metric("Точность модели", "94.2%", "1.3%")
 
 # Функция для загрузки модели
 @st.cache_resource
@@ -151,6 +141,18 @@ def prepare_data(df):
 # Основное содержимое
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Предсказание", "📊 Анализ", "📈 Графики", "📁 Данные"])
 
+# Инициализация session state
+if 'predictions' not in st.session_state:
+    st.session_state.predictions = None
+if 'ids' not in st.session_state:
+    st.session_state.ids = None
+if 'input_data' not in st.session_state:
+    st.session_state.input_data = None
+if 'manual_data' not in st.session_state:
+    st.session_state.manual_data = None
+if 'generated_data' not in st.session_state:
+    st.session_state.generated_data = None
+
 # Вкладка 1: Предсказание
 with tab1:
     st.markdown('<h2 class="sub-header">🔮 Предсказание цен на жилье</h2>', unsafe_allow_html=True)
@@ -164,8 +166,11 @@ with tab1:
             ["📤 Загрузить CSV файл", "📝 Ввести данные вручную", "🎲 Сгенерировать тестовые данные"]
         )
         
+        uploaded_file = None
+        data = None
+        
         if data_source == "📤 Загрузить CSV файл":
-            uploaded_file = st.file_uploader("Загрузите CSV файл с данными", type=['csv'])
+            uploaded_file = st.file_uploader("Загрузите CSV файл с данными", type=['csv'], key="csv_uploader")
             
             if uploaded_file is not None:
                 try:
@@ -227,15 +232,16 @@ with tab1:
                 'YrSold': 2023
             }])
             
-            if st.button("💾 Сохранить ручной ввод"):
+            if st.button("💾 Сохранить ручной ввод", key="save_manual"):
                 st.session_state.manual_data = manual_data
                 st.success("✅ Данные сохранены!")
+                data = manual_data
         
         else:  # Генерация тестовых данных
             st.markdown("### Генерация тестовых данных")
-            num_samples = st.slider("Количество примеров", 1, 100, 10)
+            num_samples = st.slider("Количество примеров", 1, 100, 10, key="num_samples")
             
-            if st.button("🎲 Сгенерировать данные"):
+            if st.button("🎲 Сгенерировать данные", key="generate_data"):
                 np.random.seed(42)
                 
                 # Генерируем случайные данные
@@ -257,7 +263,7 @@ with tab1:
                 
                 st.session_state.generated_data = test_data
                 st.success(f"✅ Сгенерировано {num_samples} примеров")
-                st.dataframe(test_data)
+                data = test_data
     
     with col2:
         st.markdown('<div class="info-card">', unsafe_allow_html=True)
@@ -269,44 +275,47 @@ with tab1:
         if model is not None:
             st.success(f"✅ Модель загружена: {selected_model}")
             
-            if st.button("🚀 Запустить предсказание", type="primary", use_container_width=True):
-                with st.spinner("🤖 Выполняется предсказание..."):
-                    # Определяем какие данные использовать
-                    if uploaded_file is not None:
-                        data_to_predict = data.copy()
-                    elif 'manual_data' in st.session_state:
-                        data_to_predict = st.session_state.manual_data.copy()
-                    elif 'generated_data' in st.session_state:
-                        data_to_predict = st.session_state.generated_data.copy()
-                    else:
-                        st.warning("⚠️ Пожалуйста, загрузите данные")
-                        st.stop()
-                    
-                    # Сохраняем ID если есть
-                    if 'Id' in data_to_predict.columns:
-                        ids = data_to_predict['Id']
-                        data_to_predict = data_to_predict.drop('Id', axis=1)
-                    else:
-                        ids = pd.Series(range(1, len(data_to_predict) + 1))
-                    
-                    # Подготавливаем данные
-                    X_prepared = prepare_data(data_to_predict)
-                    
-                    # Делаем предсказания
-                    predictions = model.predict(X_prepared)
-                    predictions = np.clip(predictions, 0, None)
-                    
-                    # Сохраняем результаты
-                    st.session_state.predictions = predictions
-                    st.session_state.ids = ids
-                    st.session_state.input_data = data_to_predict
-                    
-                    st.success(f"✅ Предсказание завершено! Обработано {len(predictions)} объектов")
+            # Определяем какие данные использовать
+            data_to_predict = None
+            
+            if data_source == "📤 Загрузить CSV файл" and uploaded_file is not None:
+                data_to_predict = data
+            elif data_source == "📝 Ввести данные вручную" and st.session_state.manual_data is not None:
+                data_to_predict = st.session_state.manual_data
+            elif data_source == "🎲 Сгенерировать тестовые данные" and st.session_state.generated_data is not None:
+                data_to_predict = st.session_state.generated_data
+            
+            if st.button("🚀 Запустить предсказание", type="primary", use_container_width=True, key="run_prediction"):
+                if data_to_predict is not None:
+                    with st.spinner("🤖 Выполняется предсказание..."):
+                        # Сохраняем ID если есть
+                        if 'Id' in data_to_predict.columns:
+                            ids = data_to_predict['Id']
+                            X = data_to_predict.drop('Id', axis=1)
+                        else:
+                            ids = pd.Series(range(1, len(data_to_predict) + 1))
+                            X = data_to_predict
+                        
+                        # Подготавливаем данные
+                        X_prepared = prepare_data(X)
+                        
+                        # Делаем предсказания
+                        predictions = model.predict(X_prepared)
+                        predictions = np.clip(predictions, 0, None)
+                        
+                        # Сохраняем результаты
+                        st.session_state.predictions = predictions
+                        st.session_state.ids = ids
+                        st.session_state.input_data = X
+                        
+                        st.success(f"✅ Предсказание завершено! Обработано {len(predictions)} объектов")
+                else:
+                    st.warning("⚠️ Пожалуйста, сначала загрузите или создайте данные")
         
         st.markdown('</div>', unsafe_allow_html=True)
         
         # Показываем результаты если они есть
-        if 'predictions' in st.session_state:
+        if st.session_state.predictions is not None:
             st.markdown('<div class="prediction-card">', unsafe_allow_html=True)
             st.markdown("### 📊 Результаты")
             
@@ -328,7 +337,8 @@ with tab1:
                 data=csv,
                 file_name="house_price_predictions.csv",
                 mime="text/csv",
-                use_container_width=True
+                use_container_width=True,
+                key="download_results"
             )
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -336,7 +346,7 @@ with tab1:
 with tab2:
     st.markdown('<h2 class="sub-header">📊 Анализ предсказаний</h2>', unsafe_allow_html=True)
     
-    if 'predictions' in st.session_state:
+    if st.session_state.predictions is not None:
         # Статистика в карточках
         col1, col2, col3, col4 = st.columns(4)
         
@@ -418,11 +428,12 @@ with tab2:
 with tab3:
     st.markdown('<h2 class="sub-header">📈 Визуализация результатов</h2>', unsafe_allow_html=True)
     
-    if 'predictions' in st.session_state:
+    if st.session_state.predictions is not None:
         # Выбор типа графика
         chart_type = st.selectbox(
             "Выберите тип графика:",
-            ["Гистограмма распределения", "Box plot", "Scatter plot", "3D визуализация", "Тепловая карта"]
+            ["Гистограмма распределения", "Box plot", "Scatter plot", "3D визуализация", "Тепловая карта"],
+            key="chart_type"
         )
         
         if chart_type == "Гистограмма распределения":
@@ -503,90 +514,100 @@ with tab3:
             col2.metric("Нижняя граница", f"${lower_bound:,.0f}")
             col3.metric("Верхняя граница", f"${upper_bound:,.0f}")
         
-        elif chart_type == "Scatter plot" and 'input_data' in st.session_state:
+        elif chart_type == "Scatter plot" and st.session_state.input_data is not None:
             # Выбор признаков для scatter plot
             if not st.session_state.input_data.empty:
                 numeric_cols = st.session_state.input_data.select_dtypes(include=['int64', 'float64']).columns
                 
-                col_x, col_y = st.columns(2)
-                with col_x:
-                    x_feature = st.selectbox("Выберите признак для оси X:", numeric_cols)
-                with col_y:
-                    y_feature = st.selectbox("Выберите признак для оси Y:", numeric_cols)
-                
-                # Создаем scatter plot
-                fig = go.Figure()
-                
-                fig.add_trace(go.Scatter(
-                    x=st.session_state.input_data[x_feature],
-                    y=st.session_state.predictions,
-                    mode='markers',
-                    marker=dict(
-                        size=10,
-                        color=st.session_state.input_data[y_feature] if y_feature in st.session_state.input_data.columns else st.session_state.predictions,
-                        colorscale='Viridis',
-                        showscale=True,
-                        colorbar=dict(title=y_feature)
-                    ),
-                    text=[f"Цена: ${p:,.0f}<br>{x_feature}: {x}<br>{y_feature}: {y}" 
-                          for p, x, y in zip(st.session_state.predictions, 
-                                           st.session_state.input_data[x_feature],
-                                           st.session_state.input_data[y_feature])],
-                    hoverinfo='text'
-                ))
-                
-                fig.update_layout(
-                    title=f"Зависимость цены от {x_feature}",
-                    xaxis_title=x_feature,
-                    yaxis_title="Предсказанная цена ($)",
-                    height=500,
-                    template="plotly_white"
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
+                if len(numeric_cols) > 0:
+                    col_x, col_y = st.columns(2)
+                    with col_x:
+                        x_feature = st.selectbox("Выберите признак для оси X:", numeric_cols, key="x_scatter")
+                    with col_y:
+                        y_feature = st.selectbox("Выберите признак для оси Y:", numeric_cols, key="y_scatter")
+                    
+                    # Создаем scatter plot
+                    fig = go.Figure()
+                    
+                    fig.add_trace(go.Scatter(
+                        x=st.session_state.input_data[x_feature],
+                        y=st.session_state.predictions,
+                        mode='markers',
+                        marker=dict(
+                            size=10,
+                            color=st.session_state.input_data[y_feature] if y_feature in st.session_state.input_data.columns else st.session_state.predictions,
+                            colorscale='Viridis',
+                            showscale=True,
+                            colorbar=dict(title=y_feature)
+                        ),
+                        text=[f"Цена: ${p:,.0f}<br>{x_feature}: {x}<br>{y_feature}: {y}" 
+                              for p, x, y in zip(st.session_state.predictions, 
+                                               st.session_state.input_data[x_feature],
+                                               st.session_state.input_data[y_feature])],
+                        hoverinfo='text'
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"Зависимость цены от {x_feature}",
+                        xaxis_title=x_feature,
+                        yaxis_title="Предсказанная цена ($)",
+                        height=500,
+                        template="plotly_white"
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("Нет числовых признаков для scatter plot")
+            else:
+                st.warning("Нет данных для scatter plot")
         
-        elif chart_type == "3D визуализация" and 'input_data' in st.session_state and show_3d:
+        elif chart_type == "3D визуализация" and st.session_state.input_data is not None and show_3d:
             if not st.session_state.input_data.empty:
                 numeric_cols = st.session_state.input_data.select_dtypes(include=['int64', 'float64']).columns.tolist()
                 
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    x_feature = st.selectbox("Ось X:", numeric_cols, key='x_3d')
-                with col2:
-                    y_feature = st.selectbox("Ось Y:", numeric_cols, key='y_3d')
-                with col3:
-                    z_feature = st.selectbox("Ось Z:", numeric_cols, key='z_3d')
-                
-                # 3D scatter plot
-                fig = go.Figure(data=[go.Scatter3d(
-                    x=st.session_state.input_data[x_feature],
-                    y=st.session_state.input_data[y_feature],
-                    z=st.session_state.predictions,
-                    mode='markers',
-                    marker=dict(
-                        size=8,
-                        color=st.session_state.input_data[z_feature],
-                        colorscale='Rainbow',
-                        opacity=0.8,
-                        colorbar=dict(title=z_feature)
-                    ),
-                    text=[f"Цена: ${p:,.0f}" for p in st.session_state.predictions]
-                )])
-                
-                fig.update_layout(
-                    title="3D визуализация предсказаний",
-                    scene=dict(
-                        xaxis_title=x_feature,
-                        yaxis_title=y_feature,
-                        zaxis_title="Предсказанная цена ($)"
-                    ),
-                    height=600,
-                    template="plotly_dark"
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
+                if len(numeric_cols) >= 3:
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        x_feature = st.selectbox("Ось X:", numeric_cols, key='x_3d')
+                    with col2:
+                        y_feature = st.selectbox("Ось Y:", numeric_cols, key='y_3d')
+                    with col3:
+                        z_feature = st.selectbox("Ось Z:", numeric_cols, key='z_3d')
+                    
+                    # 3D scatter plot
+                    fig = go.Figure(data=[go.Scatter3d(
+                        x=st.session_state.input_data[x_feature],
+                        y=st.session_state.input_data[y_feature],
+                        z=st.session_state.predictions,
+                        mode='markers',
+                        marker=dict(
+                            size=8,
+                            color=st.session_state.input_data[z_feature],
+                            colorscale='Rainbow',
+                            opacity=0.8,
+                            colorbar=dict(title=z_feature)
+                        ),
+                        text=[f"Цена: ${p:,.0f}" for p in st.session_state.predictions]
+                    )])
+                    
+                    fig.update_layout(
+                        title="3D визуализация предсказаний",
+                        scene=dict(
+                            xaxis_title=x_feature,
+                            yaxis_title=y_feature,
+                            zaxis_title="Предсказанная цена ($)"
+                        ),
+                        height=600,
+                        template="plotly_dark"
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("Нужно как минимум 3 числовых признака для 3D визуализации")
+            else:
+                st.warning("Нет данных для 3D визуализации")
         
-        elif chart_type == "Тепловая карта" and 'input_data' in st.session_state:
+        elif chart_type == "Тепловая карта" and st.session_state.input_data is not None:
             # Корреляционная матрица
             if not st.session_state.input_data.empty:
                 # Выбираем только числовые колонки
@@ -629,6 +650,8 @@ with tab3:
                         st.progress(float(corr), text=f"{feature}: {corr:.3f}")
                 else:
                     st.warning("Недостаточно числовых признаков для анализа корреляций")
+            else:
+                st.warning("Нет данных для тепловой карты")
     
     else:
         st.info("ℹ️ Сначала выполните предсказание на вкладке 'Предсказание'")
@@ -694,7 +717,7 @@ with tab4:
         ))
         
         # Если есть предсказания, добавляем их для сравнения
-        if 'predictions' in st.session_state:
+        if st.session_state.predictions is not None:
             fig.add_trace(go.Histogram(
                 x=st.session_state.predictions,
                 nbinsx=50,
@@ -744,6 +767,7 @@ with tab4:
     # Информация о модели
     st.markdown("### 🧠 Информация о модели")
     
+    model = load_model(selected_model)
     if model is not None:
         col_info1, col_info2 = st.columns(2)
         
@@ -762,9 +786,7 @@ with tab4:
             st.markdown("#### Производительность")
             
             # Если есть предсказания и валидационные данные
-            if 'predictions' in st.session_state and 'input_data' in st.session_state:
-                # Предполагаем, что у нас есть настоящие цены для сравнения
-                # В реальном приложении нужно загрузить тестовые данные с настоящими ценами
+            if st.session_state.predictions is not None and st.session_state.input_data is not None:
                 st.info("Для оценки точности нужны настоящие цены")
             else:
                 st.info("Выполните предсказание для оценки модели")
