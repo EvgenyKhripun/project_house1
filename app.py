@@ -311,12 +311,15 @@ if st.button("🎯 Предсказать цену", type="primary", use_contain
     
     with st.spinner("Обрабатываю данные..."):
         try:
-            # Создаем DataFrame с оригинальными колонками
-            input_data = {col: default_values.get(col, None) for col in all_original_columns}
+            # Передаем только оставшиеся колонки, которые нужны препроцессору
+            input_data = {col: default_values.get(col, None) for col in remaining_columns}
             df_input = pd.DataFrame([input_data])
-            df_input['Id'] = 999
             
-            # Обработка через препроцессор
+            # Проверяем порядок колонок, чтобы совпадал с обучением
+            if hasattr(preprocessor, "feature_names_in_"):
+                df_input = df_input[preprocessor.feature_names_in_]
+            
+            # Применяем препроцессор
             X_processed = preprocessor.transform(df_input)
             
             # Предсказание
@@ -324,7 +327,7 @@ if st.button("🎯 Предсказать цену", type="primary", use_contain
             st.success(f"## 🏡 Предсказанная цена: **${prediction:,.0f}**")
             
         except Exception as e:
-            # Если модель не смогла предсказать, используем упрощенную формулу
+            # Упрощенное предсказание
             st.info("Использую упрощенное предсказание на основе основных признаков")
             simple_pred = (default_values['OverallQual'] * 10000 +
                            default_values['GrLivArea'] * 50 +
@@ -332,5 +335,4 @@ if st.button("🎯 Предсказать цену", type="primary", use_contain
             st.success(f"## 🏡 Ориентировочная цена: **${simple_pred:,.0f}**")
             st.error(f"Ошибка: {str(e)[:200]}")
 
-    
         
