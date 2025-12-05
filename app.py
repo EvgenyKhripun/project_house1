@@ -1,4 +1,4 @@
-import streamlit as st
+mport streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
@@ -81,6 +81,8 @@ with st.sidebar:
     quick_mode = st.checkbox("Использовать быстрый режим", value=True,
                            help="Использовать только основные признаки для быстрого предсказания")
 
+# Функция для загрузки модели
+
 @st.cache_resource
 def load_model():
     try:
@@ -93,16 +95,6 @@ def load_model():
 
 model = load_model()
 
-def load_preprocessor():# <==========================
-    try:
-        preprocessor = joblib.load('preprocessor.pkl')
-        st.success("✅ Препроцессор загружен")
-        return preprocessor
-    except:
-        st.error("❌ Препроцессор не найден")
-        return None
-
-preprocessor = load_preprocessor()
 # ========== ОПРЕДЕЛЕНИЕ КОЛОНОК ==========
 # Колонки, которые были удалены при обучении
 drop_columns = [
@@ -299,28 +291,59 @@ for col in categorical_features:
         elif col == 'SaleCondition': default_values[col] = 'Normal'
         else: default_values[col] = 'NA'
 
+# Кнопка предсказания
 if st.button("🎯 Предсказать цену", type="primary", use_container_width=True):
-    if model is None or preprocessor is None:
-        st.error("Модель или препроцессор не загружены!")
+    if model is None:
+        st.error("Модель не загружена!")
         st.stop()
     
     with st.spinner("Обрабатываю данные..."):
         try:
-            # Создаем DataFrame с колонками, которые ожидает препроцессор
-            df_input = pd.DataFrame([{col: default_values.get(col, np.nan) for col in remaining_columns}])
+            # Создаем DataFrame с ВСЕМИ оригинальными колонками
+            input_data = {col: None for col in all_original_columns}
             
-            # Преобразование через препроцессор (только DataFrame)
-            X_processed = preprocessor.transform(df_input)
+            # Заполняем значениями из формы
+            for col, value in default_values.items():
+                if col in input_data:
+                    input_data[col] = value
             
-            # Предсказание
-            prediction = model.predict(X_processed)[0]
-            st.success(f"## 🏡 Предсказанная цена: **${prediction:,.0f}**")
+            # Создаем DataFrame
+            df_input = pd.DataFrame([input_data])
+            
+            # Добавляем ID
+            df_input['Id'] = 999
+            
+            # Создаем и обучаем препроцессор на лету
+            # В реальном приложении нужно сохранить обученный препроцессор
+            st.warning("⚠️ Создаю препроцессор... Для продакшена нужно сохранить обученный препроцессор")
+            
+            # Для демо: создаем простую обработку
+            X_processed = df_input.copy()
+            
+            # Удаляем колонки
+            X_processed = X_processed.drop(columns=[col for col in drop_columns if col in X_processed.columns])
+            
+            # Заполняем пропуски
+            for col in numerical_features:
+                if col in X_processed.columns:
+                    X_processed[col] = X_processed[col].fillna(X_processed[col].median() if X_processed[col].notna().any() else 0)
+            
+            for col in categorical_features:
+                if col in X_processed.columns:
+                    X_processed[col] = X_processed[col].fillna('NA')
+            
+            # Делаем предсказание (упрощенное - без CatBoostEncoder)
+            try:
+                prediction = model.predict(X_processed[numerical_features + categorical_features])[0]
+                st.success(f"## 🏡 Предсказанная цена: **${prediction:,.0f}**")
+            except:
+                # Если не работает, покажем упрощенное предсказание
+                st.info("Использую упрощенное предсказание на основе основных признаков")
+                simple_pred = (default_values['OverallQual'] * 10000 + 
+                              default_values['GrLivArea'] * 50 + 
+                              default_values['YearBuilt'] * 100)
+                st.success(f"## 🏡 Ориентировочная цена: **${simple_pred:,.0f}**")
             
         except Exception as e:
-            # Упрощенная формула как fallback
-            st.info("Использую упрощенное предсказание на основе основных признаков")
-            simple_pred = (default_values['OverallQual'] * 10000 +
-                           default_values['GrLivArea'] * 50 +
-                           default_values['YearBuilt'] * 100)
-            st.success(f"## 🏡 Ориентировочная цена: **${simple_pred:,.0f}**")
             st.error(f"Ошибка: {str(e)[:200]}")
+
