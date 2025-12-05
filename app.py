@@ -81,18 +81,9 @@ with st.sidebar:
         help="Выберите обученную модель из доступных"
     )
     
-    # Настройки визуализации
-    st.markdown("### 📊 Настройки графиков")
-    chart_theme = st.selectbox("Тема графиков:", ["plotly", "seaborn", "matplotlib"])
-    show_3d = st.checkbox("Показать 3D графики", value=True)
-    
-    # Информация о модели
-    st.markdown("### ℹ️ О модели")
-    st.info("""
-    Эта модель обучена на данных о ценах на жилье 
-    и использует алгоритмы машинного обучения 
-    для точного предсказания стоимости.
-    """)
+    st.markdown("### ⚡ Быстрый режим")
+    quick_mode = st.checkbox("Использовать быстрый режим", value=True,
+                           help="Использовать только основные признаки для быстрого предсказания")
 
 # Функция для загрузки модели
 @st.cache_resource
@@ -104,42 +95,94 @@ def load_model(model_path):
         st.error(f"❌ Ошибка загрузки модели: {e}")
         return None
 
-# Функция для подготовки данных
-def prepare_data(df):
-    """Подготовка данных для модели"""
-    df_prep = df.copy()
+# Функция для подготовки данных (основные признаки)
+def prepare_basic_features(df):
+    """Подготовка только основных признаков"""
+    df = df.copy()
+    
+    # Основные признаки, которые используются в большинстве моделей
+    basic_features = [
+        'OverallQual', 'GrLivArea', 'TotalBsmtSF', 'GarageCars', 
+        'FullBath', 'TotRmsAbvGrd', 'YearBuilt', 'YearRemodAdd',
+        'LotArea', 'OverallCond', 'BedroomAbvGr', 'Fireplaces',
+        'GarageArea', 'MoSold', 'YrSold', '1stFlrSF', '2ndFlrSF'
+    ]
+    
+    result = pd.DataFrame()
+    
+    for feature in basic_features:
+        if feature in df.columns:
+            result[feature] = df[feature]
+        else:
+            # Если признака нет, заполняем медианой или 0
+            if feature in ['OverallQual', 'GarageCars', 'FullBath', 'TotRmsAbvGrd', 
+                          'OverallCond', 'BedroomAbvGr', 'Fireplaces']:
+                result[feature] = 0  # для категориальных/дискретных
+            else:
+                result[feature] = 0  # для числовых
     
     # Заполняем пропуски
-    for col in df_prep.columns:
-        if df_prep[col].dtype in ['int64', 'float64']:
-            df_prep[col] = df_prep[col].fillna(df_prep[col].median())
-        else:
-            df_prep[col] = df_prep[col].fillna('missing')
+    result = result.fillna(0)
     
-    # Преобразуем категориальные переменные
-    for col in df_prep.select_dtypes(include=['object']).columns:
-        df_prep[col] = pd.factorize(df_prep[col])[0]
+    return result
+
+# Функция для ручного ввода
+def create_manual_input():
+    """Создание данных для ручного ввода"""
+    st.markdown("### 📝 Введите параметры дома")
     
-    # Добавляем базовые фичи
-    try:
-        # Общая площадь
-        if all(col in df_prep.columns for col in ['TotalBsmtSF', '1stFlrSF', '2ndFlrSF']):
-            df_prep['TotalSF'] = df_prep['TotalBsmtSF'] + df_prep['1stFlrSF'] + df_prep['2ndFlrSF']
-        
-        # Возраст дома
-        if all(col in df_prep.columns for col in ['YrSold', 'YearBuilt']):
-            df_prep['HouseAge'] = df_prep['YrSold'] - df_prep['YearBuilt']
-        
-        # Ванные комнаты
-        if all(col in df_prep.columns for col in ['FullBath', 'HalfBath']):
-            df_prep['TotalBath'] = df_prep['FullBath'] + 0.5 * df_prep['HalfBath']
-    except:
-        pass
+    col1, col2 = st.columns(2)
     
-    return df_prep
+    with col1:
+        overall_qual = st.slider("Общее качество (1-10)", 1, 10, 7)
+        gr_liv_area = st.number_input("Жилая площадь (кв.футы)", 500, 5000, 1500, step=50)
+        total_bsmt_sf = st.number_input("Площадь подвала (кв.футы)", 0, 3000, 1000, step=50)
+        garage_cars = st.slider("Вместимость гаража", 0, 4, 2)
+        full_bath = st.slider("Полных ванных", 0, 4, 2)
+    
+    with col2:
+        tot_rms_abv_grd = st.slider("Комнат над землей", 2, 15, 6)
+        year_built = st.slider("Год постройки", 1870, 2024, 2000)
+        year_remod_add = st.slider("Год ремонта", 1870, 2024, 2005)
+        lot_area = st.number_input("Площадь участка (кв.футы)", 1000, 50000, 10000, step=100)
+        overall_cond = st.slider("Общее состояние (1-10)", 1, 10, 5)
+    
+    # Дополнительные параметры
+    with st.expander("Дополнительные параметры"):
+        col3, col4 = st.columns(2)
+        with col3:
+            bedroom_abv_gr = st.slider("Спален над землей", 0, 8, 3)
+            fireplaces = st.slider("Камины", 0, 4, 1)
+        with col4:
+            garage_area = st.number_input("Площадь гаража", 0, 1500, 500, step=50)
+            mo_sold = st.slider("Месяц продажи", 1, 12, 6)
+            yr_sold = st.slider("Год продажи", 2000, 2024, 2023)
+    
+    # Создаем DataFrame
+    manual_data = pd.DataFrame([{
+        'OverallQual': overall_qual,
+        'GrLivArea': gr_liv_area,
+        'TotalBsmtSF': total_bsmt_sf,
+        'GarageCars': garage_cars,
+        'FullBath': full_bath,
+        'TotRmsAbvGrd': tot_rms_abv_grd,
+        'YearBuilt': year_built,
+        'YearRemodAdd': year_remod_add,
+        'LotArea': lot_area,
+        'OverallCond': overall_cond,
+        'BedroomAbvGr': bedroom_abv_gr,
+        'Fireplaces': fireplaces,
+        'GarageArea': garage_area,
+        'MoSold': mo_sold,
+        'YrSold': yr_sold,
+        '1stFlrSF': gr_liv_area * 0.6,  # Примерное значение
+        '2ndFlrSF': gr_liv_area * 0.4   # Примерное значение
+    }])
+    
+    return manual_data
 
 # Основное содержимое
-tab1, tab2, tab3, tab4 = st.tabs(["🏠 Предсказание", "📊 Анализ", "📈 Графики", "📁 Данные"])
+tab1, tab2, tab3 = st.tabs(["🏠 Предсказание", "📊 Анализ", "📈 Графики"])
 
 # Инициализация session state
 if 'predictions' not in st.session_state:
@@ -148,10 +191,6 @@ if 'ids' not in st.session_state:
     st.session_state.ids = None
 if 'input_data' not in st.session_state:
     st.session_state.input_data = None
-if 'manual_data' not in st.session_state:
-    st.session_state.manual_data = None
-if 'generated_data' not in st.session_state:
-    st.session_state.generated_data = None
 
 # Вкладка 1: Предсказание
 with tab1:
@@ -163,11 +202,11 @@ with tab1:
         # Способ загрузки данных
         data_source = st.radio(
             "Выберите способ загрузки данных:",
-            ["📤 Загрузить CSV файл", "📝 Ввести данные вручную", "🎲 Сгенерировать тестовые данные"]
+            ["📤 Загрузить CSV файл", "📝 Ввести данные вручную", "🎲 Пример данных"]
         )
         
-        uploaded_file = None
-        data = None
+        data_to_predict = None
+        data_display = None
         
         if data_source == "📤 Загрузить CSV файл":
             uploaded_file = st.file_uploader("Загрузите CSV файл с данными", type=['csv'], key="csv_uploader")
@@ -175,95 +214,58 @@ with tab1:
             if uploaded_file is not None:
                 try:
                     data = pd.read_csv(uploaded_file)
+                    data_display = data.copy()
+                    
                     st.success(f"✅ Файл успешно загружен: {uploaded_file.name}")
                     
                     with st.expander("👀 Просмотр данных", expanded=True):
                         st.dataframe(data.head(10))
                         st.write(f"**Размер данных:** {data.shape[0]} строк, {data.shape[1]} столбцов")
-                        
-                        # Статистика по данным
-                        st.write("**Статистика по данным:**")
-                        col_stat1, col_stat2, col_stat3 = st.columns(3)
-                        with col_stat1:
-                            st.metric("Числовых признаков", len(data.select_dtypes(include=['int64', 'float64']).columns))
-                        with col_stat2:
-                            st.metric("Категориальных признаков", len(data.select_dtypes(include=['object']).columns))
-                        with col_stat3:
-                            st.metric("Пропущенных значений", data.isnull().sum().sum())
+                    
+                    data_to_predict = data
                 
                 except Exception as e:
                     st.error(f"Ошибка при чтении файла: {e}")
         
         elif data_source == "📝 Ввести данные вручную":
-            st.markdown("### Введите параметры дома")
+            manual_data = create_manual_input()
             
-            col_a, col_b, col_c = st.columns(3)
-            
-            with col_a:
-                overall_qual = st.slider("Общее качество (1-10)", 1, 10, 7, 
-                                         help="Общая оценка качества материалов и отделки")
-                gr_liv_area = st.number_input("Жилая площадь (кв.футы)", 500, 5000, 1500, step=50)
-                total_bsmt_sf = st.number_input("Площадь подвала (кв.футы)", 0, 3000, 1000, step=50)
-            
-            with col_b:
-                garage_cars = st.slider("Вместимость гаража", 0, 4, 2)
-                full_bath = st.slider("Полных ванных", 0, 4, 2)
-                tot_rms_abv_grd = st.slider("Комнат над землей", 2, 15, 6)
-            
-            with col_c:
-                year_built = st.slider("Год постройки", 1870, 2024, 2000)
-                lot_area = st.number_input("Площадь участка (кв.футы)", 1000, 50000, 10000, step=100)
-                overall_cond = st.slider("Общее состояние (1-10)", 1, 10, 5)
-            
-            # Создаем DataFrame
-            manual_data = pd.DataFrame([{
-                'OverallQual': overall_qual,
-                'GrLivArea': gr_liv_area,
-                'TotalBsmtSF': total_bsmt_sf,
-                'GarageCars': garage_cars,
-                'FullBath': full_bath,
-                'TotRmsAbvGrd': tot_rms_abv_grd,
-                'YearBuilt': year_built,
-                'LotArea': lot_area,
-                'OverallCond': overall_cond,
-                'BedroomAbvGr': 3,
-                'Fireplaces': 1,
-                'MoSold': 6,
-                'YrSold': 2023
-            }])
-            
-            if st.button("💾 Сохранить ручной ввод", key="save_manual"):
+            if st.button("💾 Сохранить данные", key="save_manual"):
                 st.session_state.manual_data = manual_data
                 st.success("✅ Данные сохранены!")
-                data = manual_data
+                data_to_predict = manual_data
+                data_display = manual_data.copy()
         
-        else:  # Генерация тестовых данных
-            st.markdown("### Генерация тестовых данных")
-            num_samples = st.slider("Количество примеров", 1, 100, 10, key="num_samples")
+        else:  # Пример данных
+            st.markdown("### Пример данных для тестирования")
             
-            if st.button("🎲 Сгенерировать данные", key="generate_data"):
-                np.random.seed(42)
-                
-                # Генерируем случайные данные
-                test_data = pd.DataFrame({
-                    'OverallQual': np.random.randint(1, 11, num_samples),
-                    'GrLivArea': np.random.randint(800, 4000, num_samples),
-                    'TotalBsmtSF': np.random.randint(0, 2000, num_samples),
-                    'GarageCars': np.random.randint(0, 4, num_samples),
-                    'FullBath': np.random.randint(1, 4, num_samples),
-                    'TotRmsAbvGrd': np.random.randint(4, 12, num_samples),
-                    'YearBuilt': np.random.randint(1950, 2020, num_samples),
-                    'LotArea': np.random.randint(3000, 20000, num_samples),
-                    'OverallCond': np.random.randint(1, 11, num_samples),
-                    'BedroomAbvGr': np.random.randint(2, 6, num_samples),
-                    'Fireplaces': np.random.randint(0, 3, num_samples),
-                    'MoSold': np.random.randint(1, 13, num_samples),
-                    'YrSold': np.random.randint(2010, 2024, num_samples)
-                })
-                
-                st.session_state.generated_data = test_data
-                st.success(f"✅ Сгенерировано {num_samples} примеров")
-                data = test_data
+            # Создаем пример данных
+            example_data = pd.DataFrame([{
+                'OverallQual': 7,
+                'GrLivArea': 1500,
+                'TotalBsmtSF': 1000,
+                'GarageCars': 2,
+                'FullBath': 2,
+                'TotRmsAbvGrd': 6,
+                'YearBuilt': 2000,
+                'YearRemodAdd': 2005,
+                'LotArea': 10000,
+                'OverallCond': 5,
+                'BedroomAbvGr': 3,
+                'Fireplaces': 1,
+                'GarageArea': 500,
+                'MoSold': 6,
+                'YrSold': 2023,
+                '1stFlrSF': 900,
+                '2ndFlrSF': 600
+            }])
+            
+            st.dataframe(example_data)
+            
+            if st.button("🎯 Использовать пример", key="use_example"):
+                data_to_predict = example_data
+                data_display = example_data.copy()
+                st.success("✅ Пример данных загружен!")
     
     with col2:
         st.markdown('<div class="info-card">', unsafe_allow_html=True)
@@ -273,42 +275,41 @@ with tab1:
         model = load_model(selected_model)
         
         if model is not None:
-            st.success(f"✅ Модель загружена: {selected_model}")
-            
-            # Определяем какие данные использовать
-            data_to_predict = None
-            
-            if data_source == "📤 Загрузить CSV файл" and uploaded_file is not None:
-                data_to_predict = data
-            elif data_source == "📝 Ввести данные вручную" and st.session_state.manual_data is not None:
-                data_to_predict = st.session_state.manual_data
-            elif data_source == "🎲 Сгенерировать тестовые данные" and st.session_state.generated_data is not None:
-                data_to_predict = st.session_state.generated_data
+            st.success(f"✅ Модель загружена")
             
             if st.button("🚀 Запустить предсказание", type="primary", use_container_width=True, key="run_prediction"):
                 if data_to_predict is not None:
                     with st.spinner("🤖 Выполняется предсказание..."):
-                        # Сохраняем ID если есть
-                        if 'Id' in data_to_predict.columns:
-                            ids = data_to_predict['Id']
-                            X = data_to_predict.drop('Id', axis=1)
-                        else:
-                            ids = pd.Series(range(1, len(data_to_predict) + 1))
-                            X = data_to_predict
-                        
-                        # Подготавливаем данные
-                        X_prepared = prepare_data(X)
-                        
-                        # Делаем предсказания
-                        predictions = model.predict(X_prepared)
-                        predictions = np.clip(predictions, 0, None)
-                        
-                        # Сохраняем результаты
-                        st.session_state.predictions = predictions
-                        st.session_state.ids = ids
-                        st.session_state.input_data = X
-                        
-                        st.success(f"✅ Предсказание завершено! Обработано {len(predictions)} объектов")
+                        try:
+                            # Сохраняем ID если есть
+                            if 'Id' in data_to_predict.columns:
+                                ids = data_to_predict['Id']
+                                X = data_to_predict.drop('Id', axis=1)
+                            else:
+                                ids = pd.Series(range(1, len(data_to_predict) + 1))
+                                X = data_to_predict
+                            
+                            # Подготавливаем данные (только основные признаки)
+                            X_prepared = prepare_basic_features(X)
+                            
+                            # Делаем предсказания
+                            predictions = model.predict(X_prepared)
+                            predictions = np.clip(predictions, 0, None)
+                            
+                            # Проверяем масштаб (если модель обучалась на log(y))
+                            if predictions.mean() < 1000:
+                                predictions = np.expm1(predictions)
+                                predictions = np.clip(predictions, 0, None)
+                            
+                            # Сохраняем результаты
+                            st.session_state.predictions = predictions
+                            st.session_state.ids = ids
+                            st.session_state.input_data = X_prepared
+                            
+                            st.success(f"✅ Предсказание завершено!")
+                            
+                        except Exception as e:
+                            st.error(f"❌ Ошибка при предсказании: {e}")
                 else:
                     st.warning("⚠️ Пожалуйста, сначала загрузите или создайте данные")
         
@@ -319,16 +320,16 @@ with tab1:
             st.markdown('<div class="prediction-card">', unsafe_allow_html=True)
             st.markdown("### 📊 Результаты")
             
-            avg_price = st.session_state.predictions.mean()
-            st.metric("Средняя цена", f"${avg_price:,.0f}")
+            predictions = st.session_state.predictions
+            avg_price = predictions.mean()
             
-            st.markdown(f"**Диапазон цен:** ${st.session_state.predictions.min():,.0f} - ${st.session_state.predictions.max():,.0f}")
-            st.markdown(f"**Медианная цена:** ${np.median(st.session_state.predictions):,.0f}")
+            st.metric("Средняя цена", f"${avg_price:,.0f}")
+            st.metric("Мин/Макс", f"${predictions.min():,.0f} / ${predictions.max():,.0f}")
             
             # Кнопка для скачивания
             results_df = pd.DataFrame({
                 'Id': st.session_state.ids,
-                'Predicted_Price': st.session_state.predictions
+                'Predicted_Price': predictions
             })
             
             csv = results_df.to_csv(index=False).encode('utf-8')
@@ -432,53 +433,39 @@ with tab3:
         # Выбор типа графика
         chart_type = st.selectbox(
             "Выберите тип графика:",
-            ["Гистограмма распределения", "Box plot", "Scatter plot", "3D визуализация", "Тепловая карта"],
+            ["Гистограмма распределения", "Box plot", "Сравнение признаков"],
             key="chart_type"
         )
         
         if chart_type == "Гистограмма распределения":
-            col1, col2 = st.columns([3, 1])
+            fig = go.Figure()
             
-            with col1:
-                fig = go.Figure()
-                
-                fig.add_trace(go.Histogram(
-                    x=st.session_state.predictions,
-                    nbinsx=30,
-                    name='Распределение цен',
-                    marker_color='#3B82F6',
-                    opacity=0.7
-                ))
-                
-                # Добавляем вертикальную линию для среднего
-                fig.add_vline(
-                    x=st.session_state.predictions.mean(),
-                    line_width=3,
-                    line_dash="dash",
-                    line_color="red",
-                    annotation_text=f"Среднее: ${st.session_state.predictions.mean():,.0f}"
-                )
-                
-                fig.update_layout(
-                    title="Распределение предсказанных цен",
-                    xaxis_title="Цена ($)",
-                    yaxis_title="Количество",
-                    height=500,
-                    template="plotly_white"
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
+            fig.add_trace(go.Histogram(
+                x=st.session_state.predictions,
+                nbinsx=30,
+                name='Распределение цен',
+                marker_color='#3B82F6',
+                opacity=0.7
+            ))
             
-            with col2:
-                st.markdown("### Статистика")
-                st.metric("Skewness", f"{pd.Series(st.session_state.predictions).skew():.3f}")
-                st.metric("Kurtosis", f"{pd.Series(st.session_state.predictions).kurtosis():.3f}")
-                
-                # Процентили
-                st.markdown("#### Процентили")
-                for p in [25, 50, 75, 90]:
-                    value = np.percentile(st.session_state.predictions, p)
-                    st.metric(f"{p}%", f"${value:,.0f}")
+            # Добавляем вертикальную линию для среднего
+            fig.add_vline(
+                x=st.session_state.predictions.mean(),
+                line_width=3,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=f"Среднее: ${st.session_state.predictions.mean():,.0f}"
+            )
+            
+            fig.update_layout(
+                title="Распределение предсказанных цен",
+                xaxis_title="Цена ($)",
+                yaxis_title="Количество",
+                height=500,
+                template="plotly_white"
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
         
         elif chart_type == "Box plot":
             fig = go.Figure()
@@ -499,318 +486,54 @@ with tab3:
             )
             
             st.plotly_chart(fig, use_container_width=True)
-            
-            # Анализ выбросов
-            Q1 = np.percentile(st.session_state.predictions, 25)
-            Q3 = np.percentile(st.session_state.predictions, 75)
-            IQR = Q3 - Q1
-            lower_bound = Q1 - 1.5 * IQR
-            upper_bound = Q3 + 1.5 * IQR
-            
-            outliers = [p for p in st.session_state.predictions if p < lower_bound or p > upper_bound]
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Выбросов", len(outliers))
-            col2.metric("Нижняя граница", f"${lower_bound:,.0f}")
-            col3.metric("Верхняя граница", f"${upper_bound:,.0f}")
         
-        elif chart_type == "Scatter plot" and st.session_state.input_data is not None:
-            # Выбор признаков для scatter plot
+        elif chart_type == "Сравнение признаков" and st.session_state.input_data is not None:
+            # Выбор признака для анализа
             if not st.session_state.input_data.empty:
-                numeric_cols = st.session_state.input_data.select_dtypes(include=['int64', 'float64']).columns
+                available_features = st.session_state.input_data.columns.tolist()
                 
-                if len(numeric_cols) > 0:
-                    col_x, col_y = st.columns(2)
-                    with col_x:
-                        x_feature = st.selectbox("Выберите признак для оси X:", numeric_cols, key="x_scatter")
-                    with col_y:
-                        y_feature = st.selectbox("Выберите признак для оси Y:", numeric_cols, key="y_scatter")
+                if available_features:
+                    selected_feature = st.selectbox("Выберите признак для анализа:", available_features)
                     
-                    # Создаем scatter plot
-                    fig = go.Figure()
-                    
-                    fig.add_trace(go.Scatter(
-                        x=st.session_state.input_data[x_feature],
-                        y=st.session_state.predictions,
-                        mode='markers',
-                        marker=dict(
-                            size=10,
-                            color=st.session_state.input_data[y_feature] if y_feature in st.session_state.input_data.columns else st.session_state.predictions,
-                            colorscale='Viridis',
-                            showscale=True,
-                            colorbar=dict(title=y_feature)
-                        ),
-                        text=[f"Цена: ${p:,.0f}<br>{x_feature}: {x}<br>{y_feature}: {y}" 
-                              for p, x, y in zip(st.session_state.predictions, 
-                                               st.session_state.input_data[x_feature],
-                                               st.session_state.input_data[y_feature])],
-                        hoverinfo='text'
-                    ))
-                    
-                    fig.update_layout(
-                        title=f"Зависимость цены от {x_feature}",
-                        xaxis_title=x_feature,
-                        yaxis_title="Предсказанная цена ($)",
-                        height=500,
-                        template="plotly_white"
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("Нет числовых признаков для scatter plot")
-            else:
-                st.warning("Нет данных для scatter plot")
-        
-        elif chart_type == "3D визуализация" and st.session_state.input_data is not None and show_3d:
-            if not st.session_state.input_data.empty:
-                numeric_cols = st.session_state.input_data.select_dtypes(include=['int64', 'float64']).columns.tolist()
-                
-                if len(numeric_cols) >= 3:
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        x_feature = st.selectbox("Ось X:", numeric_cols, key='x_3d')
-                    with col2:
-                        y_feature = st.selectbox("Ось Y:", numeric_cols, key='y_3d')
-                    with col3:
-                        z_feature = st.selectbox("Ось Z:", numeric_cols, key='z_3d')
-                    
-                    # 3D scatter plot
-                    fig = go.Figure(data=[go.Scatter3d(
-                        x=st.session_state.input_data[x_feature],
-                        y=st.session_state.input_data[y_feature],
-                        z=st.session_state.predictions,
-                        mode='markers',
-                        marker=dict(
-                            size=8,
-                            color=st.session_state.input_data[z_feature],
-                            colorscale='Rainbow',
-                            opacity=0.8,
-                            colorbar=dict(title=z_feature)
-                        ),
-                        text=[f"Цена: ${p:,.0f}" for p in st.session_state.predictions]
-                    )])
-                    
-                    fig.update_layout(
-                        title="3D визуализация предсказаний",
-                        scene=dict(
-                            xaxis_title=x_feature,
-                            yaxis_title=y_feature,
-                            zaxis_title="Предсказанная цена ($)"
-                        ),
-                        height=600,
-                        template="plotly_dark"
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("Нужно как минимум 3 числовых признака для 3D визуализации")
-            else:
-                st.warning("Нет данных для 3D визуализации")
-        
-        elif chart_type == "Тепловая карта" and st.session_state.input_data is not None:
-            # Корреляционная матрица
-            if not st.session_state.input_data.empty:
-                # Выбираем только числовые колонки
-                numeric_data = st.session_state.input_data.select_dtypes(include=['int64', 'float64'])
-                
-                if len(numeric_data.columns) > 1:
-                    # Добавляем предсказания к данным
-                    data_with_predictions = numeric_data.copy()
-                    data_with_predictions['Predicted_Price'] = st.session_state.predictions
-                    
-                    # Вычисляем корреляции
-                    correlations = data_with_predictions.corr()
-                    
-                    # Создаем тепловую карту
-                    fig = go.Figure(data=go.Heatmap(
-                        z=correlations.values,
-                        x=correlations.columns,
-                        y=correlations.index,
-                        colorscale='RdBu',
-                        zmid=0,
-                        text=correlations.values.round(2),
-                        texttemplate='%{text}',
-                        textfont={"size": 10}
-                    ))
-                    
-                    fig.update_layout(
-                        title="Тепловая карта корреляций",
-                        height=600,
-                        template="plotly_white"
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Анализ самых важных признаков
-                    price_correlations = correlations['Predicted_Price'].abs().sort_values(ascending=False)
-                    top_features = price_correlations[1:6]  # Исключаем сам Price
-                    
-                    st.markdown("### 🔝 Топ-5 влияющих признаков")
-                    for feature, corr in top_features.items():
-                        st.progress(float(corr), text=f"{feature}: {corr:.3f}")
-                else:
-                    st.warning("Недостаточно числовых признаков для анализа корреляций")
-            else:
-                st.warning("Нет данных для тепловой карты")
+                    if selected_feature in st.session_state.input_data.columns:
+                        fig = go.Figure()
+                        
+                        fig.add_trace(go.Scatter(
+                            x=st.session_state.input_data[selected_feature],
+                            y=st.session_state.predictions,
+                            mode='markers',
+                            marker=dict(
+                                size=10,
+                                color=st.session_state.predictions,
+                                colorscale='Viridis',
+                                showscale=True,
+                                colorbar=dict(title='Цена')
+                            ),
+                            text=[f"Цена: ${p:,.0f}<br>{selected_feature}: {x}" 
+                                  for p, x in zip(st.session_state.predictions, 
+                                               st.session_state.input_data[selected_feature])],
+                            hoverinfo='text'
+                        ))
+                        
+                        fig.update_layout(
+                            title=f"Зависимость цены от {selected_feature}",
+                            xaxis_title=selected_feature,
+                            yaxis_title="Предсказанная цена ($)",
+                            height=500,
+                            template="plotly_white"
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
     
     else:
         st.info("ℹ️ Сначала выполните предсказание на вкладке 'Предсказание'")
 
-# Вкладка 4: Данные
-with tab4:
-    st.markdown('<h2 class="sub-header">📁 Работа с данными</h2>', unsafe_allow_html=True)
-    
-    # Загрузка тренировочных данных для анализа
-    try:
-        train_data = pd.read_csv('train.csv')
-        
-        st.markdown("### 📊 Анализ тренировочных данных")
-        
-        # Основная статистика
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Объектов", len(train_data))
-        col2.metric("Признаков", len(train_data.columns))
-        col3.metric("Средняя цена", f"${train_data['SalePrice'].mean():,.0f}")
-        col4.metric("Медианная цена", f"${train_data['SalePrice'].median():,.0f}")
-        
-        # Просмотр данных
-        with st.expander("👀 Просмотр тренировочных данных", expanded=False):
-            st.dataframe(train_data.head(20))
-        
-        # Анализ пропущенных значений
-        st.markdown("### 🔍 Анализ пропущенных значений")
-        
-        missing = train_data.isnull().sum()
-        missing_percent = (missing / len(train_data)) * 100
-        missing_df = pd.DataFrame({
-            'Колонка': missing.index,
-            'Пропусков': missing.values,
-            'Процент': missing_percent.values
-        })
-        missing_df = missing_df[missing_df['Пропусков'] > 0].sort_values('Процент', ascending=False)
-        
-        if not missing_df.empty:
-            fig = px.bar(
-                missing_df.head(20),
-                x='Колонка',
-                y='Процент',
-                title='Топ-20 колонок с пропущенными значениями',
-                color='Процент',
-                color_continuous_scale='RdYlGn_r'
-            )
-            fig.update_layout(height=400)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.success("✅ В тренировочных данных нет пропущенных значений!")
-        
-        # Распределение целевой переменной
-        st.markdown("### 📈 Распределение цен в тренировочных данных")
-        
-        fig = go.Figure()
-        
-        fig.add_trace(go.Histogram(
-            x=train_data['SalePrice'],
-            nbinsx=50,
-            name='Тренировочные данные',
-            marker_color='#10B981',
-            opacity=0.7
-        ))
-        
-        # Если есть предсказания, добавляем их для сравнения
-        if st.session_state.predictions is not None:
-            fig.add_trace(go.Histogram(
-                x=st.session_state.predictions,
-                nbinsx=50,
-                name='Предсказания',
-                marker_color='#3B82F6',
-                opacity=0.7
-            ))
-            
-            fig.update_layout(
-                barmode='overlay',
-                title="Сравнение распределений: тренировочные данные vs предсказания",
-                xaxis_title="Цена ($)",
-                yaxis_title="Количество",
-                height=500
-            )
-        else:
-            fig.update_layout(
-                title="Распределение цен в тренировочных данных",
-                xaxis_title="Цена ($)",
-                yaxis_title="Количество",
-                height=500
-            )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Анализ ключевых признаков
-        st.markdown("### 🗝️ Анализ ключевых признаков")
-        
-        key_features = ['OverallQual', 'GrLivArea', 'GarageCars', 'TotalBsmtSF', 'FullBath']
-        
-        for feature in key_features:
-            if feature in train_data.columns:
-                fig = px.scatter(
-                    train_data,
-                    x=feature,
-                    y='SalePrice',
-                    title=f'Зависимость цены от {feature}',
-                    trendline='ols',
-                    color_discrete_sequence=['#3B82F6']
-                )
-                fig.update_layout(height=300)
-                st.plotly_chart(fig, use_container_width=True)
-    
-    except FileNotFoundError:
-        st.warning("⚠️ Файл train.csv не найден. Поместите его в ту же папку для анализа.")
-    
-    # Информация о модели
-    st.markdown("### 🧠 Информация о модели")
-    
-    model = load_model(selected_model)
-    if model is not None:
-        col_info1, col_info2 = st.columns(2)
-        
-        with col_info1:
-            st.markdown("#### Характеристики модели")
-            st.write(f"**Тип модели:** {type(model).__name__}")
-            
-            if hasattr(model, 'n_estimators'):
-                st.write(f"**Количество деревьев:** {model.n_estimators}")
-            if hasattr(model, 'max_depth'):
-                st.write(f"**Максимальная глубина:** {model.max_depth}")
-            if hasattr(model, 'learning_rate'):
-                st.write(f"**Скорость обучения:** {model.learning_rate}")
-        
-        with col_info2:
-            st.markdown("#### Производительность")
-            
-            # Если есть предсказания и валидационные данные
-            if st.session_state.predictions is not None and st.session_state.input_data is not None:
-                st.info("Для оценки точности нужны настоящие цены")
-            else:
-                st.info("Выполните предсказание для оценки модели")
-
 # Футер
 st.markdown("---")
-footer_col1, footer_col2, footer_col3 = st.columns(3)
-
-with footer_col1:
-    st.markdown("**🏠 House Price Predictor**")
-    st.markdown("Точное предсказание цен на недвижимость")
-
-with footer_col2:
-    st.markdown("**📧 Контакты**")
-    st.markdown("support@housepredictor.com")
-
-with footer_col3:
-    st.markdown("**🔄 Обновления**")
-    st.markdown("Версия 1.0.0")
-
 st.markdown(
     """
     <div style='text-align: center; color: gray; margin-top: 2rem;'>
-    © 2024 House Price Predictor. Все права защищены.
+    © 2024 House Price Predictor. Использует основные признаки для быстрого предсказания.
     </div>
     """,
     unsafe_allow_html=True
