@@ -80,6 +80,7 @@ with st.sidebar:
     st.markdown("### ⚡ Быстрый режим")
     quick_mode = st.checkbox("Использовать быстрый режим", value=True,
                            help="Использовать только основные признаки для быстрого предсказания")
+
 @st.cache_resource
 def load_model():
     try:
