@@ -93,6 +93,16 @@ def load_model():
 
 model = load_model()
 
+def load_preprocessor():# <==========================
+    try:
+        preprocessor = joblib.load('preprocessor.pkl')
+        st.success("✅ Препроцессор загружен")
+        return preprocessor
+    except:
+        st.error("❌ Препроцессор не найден")
+        return None
+
+preprocessor = load_preprocessor()
 # ========== ОПРЕДЕЛЕНИЕ КОЛОНОК ==========
 # Колонки, которые были удалены при обучении
 drop_columns = [
@@ -295,55 +305,33 @@ if st.button("🎯 Предсказать цену", type="primary", use_contain
         st.error("Модель не загружена!")
         st.stop()
     
+    if preprocessor is None:
+        st.error("Препроцессор не загружен!")
+        st.stop()
+    
     with st.spinner("Обрабатываю данные..."):
         try:
-            # Создаем DataFrame с ВСЕМИ оригинальными колонками
-            input_data = {col: None for col in all_original_columns}
-            
-            # Заполняем значениями из формы
-            for col, value in default_values.items():
-                if col in input_data:
-                    input_data[col] = value
-            
-            # Создаем DataFrame
+            # Создаем DataFrame с оригинальными колонками
+            input_data = {col: default_values.get(col, None) for col in all_original_columns}
             df_input = pd.DataFrame([input_data])
-            
-            # Добавляем ID
             df_input['Id'] = 999
             
-            # Создаем и обучаем препроцессор на лету
-            # В реальном приложении нужно сохранить обученный препроцессор
-            st.warning("⚠️ Создаю препроцессор... Для продакшена нужно сохранить обученный препроцессор")
+            # Обработка через препроцессор
+            X_processed = preprocessor.transform(df_input)
             
-            # Для демо: создаем простую обработку
-            X_processed = df_input.copy()
-            
-            # Удаляем колонки
-            X_processed = X_processed.drop(columns=[col for col in drop_columns if col in X_processed.columns])
-            
-            # Заполняем пропуски
-            for col in numerical_features:
-                if col in X_processed.columns:
-                    X_processed[col] = X_processed[col].fillna(X_processed[col].median() if X_processed[col].notna().any() else 0)
-            
-            for col in categorical_features:
-                if col in X_processed.columns:
-                    X_processed[col] = X_processed[col].fillna('NA')
-            
-            # Делаем предсказание (упрощенное - без CatBoostEncoder)
-            try:
-                prediction = model.predict(X_processed[numerical_features + categorical_features])[0]
-                st.success(f"## 🏡 Предсказанная цена: **${prediction:,.0f}**")
-            except:
-                # Если не работает, покажем упрощенное предсказание
-                st.info("Использую упрощенное предсказание на основе основных признаков")
-                simple_pred = (default_values['OverallQual'] * 10000 + 
-                              default_values['GrLivArea'] * 50 + 
-                              default_values['YearBuilt'] * 100)
-                st.success(f"## 🏡 Ориентировочная цена: **${simple_pred:,.0f}**")
+            # Предсказание
+            prediction = model.predict(X_processed)[0]
+            st.success(f"## 🏡 Предсказанная цена: **${prediction:,.0f}**")
             
         except Exception as e:
+            # Если модель не смогла предсказать, используем упрощенную формулу
+            st.info("Использую упрощенное предсказание на основе основных признаков")
+            simple_pred = (default_values['OverallQual'] * 10000 +
+                           default_values['GrLivArea'] * 50 +
+                           default_values['YearBuilt'] * 100)
+            st.success(f"## 🏡 Ориентировочная цена: **${simple_pred:,.0f}**")
             st.error(f"Ошибка: {str(e)[:200]}")
+
 
 st.header("📤 Загрузите CSV файл с данными для предсказания")
 
@@ -397,3 +385,4 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"Ошибка при предсказании: {str(e)}")
+        
