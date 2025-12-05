@@ -300,33 +300,29 @@ for col in categorical_features:
         else: default_values[col] = 'NA'
 
 # Кнопка предсказания
-if st.button("🎯 Предсказать цену", type="primary", use_container_width=True):
+# Кнопка предсказания
+if st.button("🎯 Предсказать цену"):
     if model is None:
         st.error("Модель не загружена!")
         st.stop()
-    
-    if preprocessor is None:
-        st.error("Препроцессор не загружен!")
-        st.stop()
-    
-    with st.spinner("Обрабатываю данные..."):
-        try:
-            # Создаем DataFrame с нужными колонками
-            input_data = {col: default_values.get(col, np.nan) for col in remaining_columns}
-            df_input = pd.DataFrame([input_data])
-            
-            # Обработка через препроцессор
-            X_processed = preprocessor.transform(df_input)
-            
-            # Предсказание
-            prediction = model.predict(X_processed)[0]
-            st.success(f"## 🏡 Предсказанная цена: **${prediction:,.0f}**")
-            
-        except Exception as e:
-            # Если модель не смогла предсказать, используем упрощенную формулу
-            st.info("Использую упрощенное предсказание на основе основных признаков")
-            simple_pred = (default_values['OverallQual'] * 10000 +
-                           default_values['GrLivArea'] * 50 +
-                           default_values['YearBuilt'] * 100)
-            st.success(f"## 🏡 Ориентировочная цена: **${simple_pred:,.0f}**")
-            st.error(f"Ошибка: {str(e)[:200]}")
+
+    # Создаем DataFrame с только нужными колонками
+    input_data = {col: default_values.get(col, None) for col in remaining_columns}
+    df_input = pd.DataFrame([input_data])
+
+    try:
+        # Применяем препроцессор
+        X_processed = preprocessor.transform(df_input)
+
+        # Предсказание
+        prediction = model.predict(X_processed)[0]
+        st.success(f"## 🏡 Предсказанная цена: **${prediction:,.0f}**")
+
+    except Exception as e:
+        # Упрощенное предсказание на случай ошибки
+        st.info("Использую упрощенное предсказание на основе основных признаков")
+        simple_pred = (default_values['OverallQual'] * 10000 +
+                       default_values['GrLivArea'] * 50 +
+                       default_values['YearBuilt'] * 100)
+        st.success(f"## 🏡 Ориентировочная цена: **${simple_pred:,.0f}**")
+        st.error(f"Ошибка: {str(e)[:200]}")
