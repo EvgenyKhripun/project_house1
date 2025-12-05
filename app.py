@@ -12,9 +12,6 @@ st.set_page_config(page_title="House Price Predictor", layout="wide")
 st.title("🏠 House Price Predictor")
 st.write("Предсказание цен на дома с использованием обученной модели GradientBoostingRegressor")
 
-<<<<<<< HEAD
-# ========== ЗАГРУЗКА МОДЕЛИ ==========
-=======
 # CSS стили
 st.markdown("""
 <style>
