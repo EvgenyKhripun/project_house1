@@ -345,25 +345,25 @@ if st.button("🎯 Предсказать цену", type="primary", use_contain
         except Exception as e:
             st.error(f"Ошибка: {str(e)[:200]}")
 
-st.header("📤 Загрузите CSV файл")
-st.header("📤 Загрузите CSV файл с данными для предсказания")
+t.header("📤 Загрузите CSV файл с данными для предсказания")
 
 uploaded_file = st.file_uploader("Выберите CSV файл", type=["csv"])
 if uploaded_file is not None:
+    if model is None:
+        st.error("Модель не загружена!")
+        st.stop()
+
     try:
         df_csv = pd.read_csv(uploaded_file)
         st.write("✅ Файл загружен. Превью данных:")
         st.dataframe(df_csv.head())
 
-        # Проверяем, есть ли нужные колонки
-        missing_cols = [col for col in remaining_columns if col not in df_csv.columns]
-        if missing_cols:
-            st.warning(f"В файле отсутствуют колонки: {missing_cols}")
-            # Можно добавить недостающие колонки с NaN
-            for col in missing_cols:
+        # Добавляем недостающие колонки
+        for col in remaining_columns:
+            if col not in df_csv.columns:
                 df_csv[col] = np.nan
 
-        # Упрощенная обработка пропусков
+        # Заполняем пропуски числовых и категориальных признаков
         for col in numerical_features:
             if col in df_csv.columns:
                 df_csv[col] = df_csv[col].fillna(df_csv[col].median() if df_csv[col].notna().any() else 0)
@@ -372,26 +372,28 @@ if uploaded_file is not None:
             if col in df_csv.columns:
                 df_csv[col] = df_csv[col].fillna('NA')
 
-        # Удаляем лишние колонки
+        # Удаляем ненужные колонки
         df_csv_processed = df_csv.drop(columns=[col for col in drop_columns if col in df_csv.columns])
 
+        # Приводим порядок колонок к нужному
+        feature_order = numerical_features + categorical_features
+        X_model = df_csv_processed[feature_order]
+
         # Предсказание
-        try:
-            predictions = model.predict(df_csv_processed[numerical_features + categorical_features])
-            df_csv['PredictedPrice'] = predictions
-            st.success("✅ Предсказания выполнены")
-            st.dataframe(df_csv[['PredictedPrice']].head())
-            
-            # Кнопка для скачивания результатов
-            csv = df_csv.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="⬇️ Скачать результаты с предсказаниями",
-                data=csv,
-                file_name='predictions.csv',
-                mime='text/csv'
-            )
-        except Exception as e:
-            st.error(f"Ошибка при предсказании: {str(e)}")
+        predictions = model.predict(X_model)
+        df_csv['PredictedPrice'] = predictions
+
+        st.success("✅ Предсказания выполнены")
+        st.dataframe(df_csv[['PredictedPrice']].head())
+
+        # Кнопка для скачивания результатов
+        csv = df_csv.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="⬇️ Скачать результаты с предсказаниями",
+            data=csv,
+            file_name='predictions.csv',
+            mime='text/csv'
+        )
 
     except Exception as e:
-        st.error(f"Ошибка при чтении файла: {str(e)}")
+        st.error(f"Ошибка при предсказании: {str(e)}")
