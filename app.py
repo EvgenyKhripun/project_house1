@@ -345,7 +345,7 @@ if st.button("🎯 Предсказать цену", type="primary", use_contain
         except Exception as e:
             st.error(f"Ошибка: {str(e)[:200]}")
 
-t.header("📤 Загрузите CSV файл с данными для предсказания")
+st.header("📤 Загрузите CSV файл с данными для предсказания")
 
 uploaded_file = st.file_uploader("Выберите CSV файл", type=["csv"])
 if uploaded_file is not None:
