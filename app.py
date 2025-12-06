@@ -2,348 +2,107 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-from sklearn.preprocessing import StandardScaler
-import category_encoders as ce
-from sklearn.impute import SimpleImputer
-from sklearn.compose import ColumnTransformer
+
+# sklearn
 from sklearn.pipeline import Pipeline
 
 st.set_page_config(page_title="House Price Predictor", layout="wide")
 st.title("🏠 House Price Predictor")
 st.write("Предсказание цен на дома с использованием обученной модели GradientBoostingRegressor")
 
-# CSS стили
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.8rem;
-        color: #1E3A8A;
-        text-align: center;
-        margin-bottom: 1rem;
-        font-weight: 700
-        background: linear-gradient(45deg, #1E3A8A, #3B82F6);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-    .sub-header {
-        font-size: 1.8rem;
-        color: #2563EB;
-        margin-top: 2rem;
-        margin-bottom: 1rem;
-        border-bottom: 2px solid #3B82F6;
-        padding-bottom: 0.5rem;
-    }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 15px;
-        margin: 0.5rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    .prediction-card {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        color: white;
-        padding: 2rem;
-        border-radius: 15px;
-        margin: 1rem 0;
-        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
-    }
-    .info-card {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 0.5rem 0;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Заголовок приложения
-st.markdown('<h1 class="main-header">🏠 AI House Price Predictor</h1>', unsafe_allow_html=True)
-st.markdown("### *Точное предсказание цен на недвижимость с помощью Machine Learning*")
-
-# Сайдбар
-with st.sidebar:
-    st.markdown("## ⚙️ Настройки")
-    
-    # Выбор модели
-    st.markdown("### 🧠 Выбор модели")
-    model_files = ["GB_model.pkl"]
-    
-    selected_model = st.selectbox(
-        "Выберите модель для предсказания:",
-        model_files,
-        help="Выберите обученную модель из доступных"
-    )
-    
-    st.markdown("### ⚡ Быстрый режим")
-    quick_mode = st.checkbox("Использовать быстрый режим", value=True,
-                           help="Использовать только основные признаки для быстрого предсказания")
-
-# Функция для загрузки модели
-
+# -----------------------------
+# Загрузка обученного pipeline
+# -----------------------------
 @st.cache_resource
-def load_model():
+def load_pipeline():
     try:
-        model = joblib.load('GB_model.pkl')
-        st.success("✅ Модель GradientBoostingRegressor загружена")
-        return model
+        pipeline = joblib.load("house_price_pipeline.pkl")  # твой full_pipeline
+        st.success("✅ Pipeline загружен")
+        return pipeline
     except:
-        st.error("❌ Модель GB_model.pkl не найдена")
+        st.error("❌ Pipeline не найден!")
         return None
 
-model = load_model()
+full_pipeline = load_pipeline()
 
-# ========== ОПРЕДЕЛЕНИЕ КОЛОНОК ==========
-# Колонки, которые были удалены при обучении
-drop_columns = [
-    'Id', '1stFlrSF', '2ndFlrSF', 'ExterQual', 'BsmtFinSF1', 'GarageYrBlt', 
-    'TotRmsAbvGrd', 'GarageCars', 'PoolQC', 'MasVnrArea', 'YearRemodAdd', 
-    'FullBath', '3SsnPorch', 'LotShape', 'FireplaceQu', 'HalfBath', 
-    'MasVnrType', 'BsmtFinType2', 'PavedDrive', 'BsmtCond', 'Foundation', 
-    'KitchenAbvGr', 'RoofStyle', 'HouseStyle', 'GarageQual', 'RoofMatl', 
-    'Electrical', 'BldgType'
-]
+# -----------------------------
+# Загрузка CSV
+# -----------------------------
+st.header("Загрузка данных")
+uploaded_file = st.file_uploader("Загрузите CSV с данными для предсказания", type="csv")
 
-# Все колонки из оригинального датасета
-all_original_columns = [
-    'MSSubClass', 'MSZoning', 'LotFrontage', 'LotArea', 'Street',
-    'Alley', 'LotShape', 'LandContour', 'Utilities', 'LotConfig',
-    'LandSlope', 'Neighborhood', 'Condition1', 'Condition2', 'BldgType',
-    'HouseStyle', 'OverallQual', 'OverallCond', 'YearBuilt', 'YearRemodAdd',
-    'RoofStyle', 'RoofMatl', 'Exterior1st', 'Exterior2nd', 'MasVnrType',
-    'MasVnrArea', 'ExterQual', 'ExterCond', 'Foundation', 'BsmtQual',
-    'BsmtCond', 'BsmtExposure', 'BsmtFinType1', 'BsmtFinSF1',
-    'BsmtFinType2', 'BsmtFinSF2', 'BsmtUnfSF', 'TotalBsmtSF', 'Heating',
-    'HeatingQC', 'CentralAir', 'Electrical', '1stFlrSF', '2ndFlrSF',
-    'LowQualFinSF', 'GrLivArea', 'BsmtFullBath', 'BsmtHalfBath', 'FullBath',
-    'HalfBath', 'BedroomAbvGr', 'KitchenAbvGr', 'KitchenQual',
-    'TotRmsAbvGrd', 'Functional', 'Fireplaces', 'FireplaceQu', 'GarageType',
-    'GarageYrBlt', 'GarageFinish', 'GarageCars', 'GarageArea', 'GarageQual',
-    'GarageCond', 'PavedDrive', 'WoodDeckSF', 'OpenPorchSF',
-    'EnclosedPorch', '3SsnPorch', 'ScreenPorch', 'PoolArea', 'PoolQC',
-    'Fence', 'MiscFeature', 'MiscVal', 'MoSold', 'YrSold', 'SaleType',
-    'SaleCondition'
-]
+if uploaded_file is not None:
+    data = pd.read_csv(uploaded_file)
+    st.write("Данные успешно загружены:")
+    st.dataframe(data.head())
 
-# Колонки, которые остаются после удаления
-remaining_columns = [col for col in all_original_columns if col not in drop_columns]
+    # Предсказания
+    if full_pipeline is not None:
+        try:
+            X_pred = data.copy()
+            if "SalePrice" in X_pred.columns:
+                y_true = X_pred["SalePrice"]
+                X_pred = X_pred.drop("SalePrice", axis=1)
+            else:
+                y_true = None
 
-# Разделение на числовые и категориальные (оригинальные типы)
-numerical_columns_original = [
-    'MSSubClass', 'LotFrontage', 'LotArea', 'OverallQual', 'OverallCond',
-    'YearBuilt', 'MasVnrArea', 'BsmtFinSF1', 'BsmtFinSF2', 'BsmtUnfSF',
-    'TotalBsmtSF', '1stFlrSF', '2ndFlrSF', 'LowQualFinSF', 'GrLivArea',
-    'BsmtFullBath', 'BsmtHalfBath', 'FullBath', 'HalfBath', 'BedroomAbvGr',
-    'KitchenAbvGr', 'TotRmsAbvGrd', 'Fireplaces', 'GarageYrBlt', 'GarageCars',
-    'GarageArea', 'WoodDeckSF', 'OpenPorchSF', 'EnclosedPorch', '3SsnPorch',
-    'ScreenPorch', 'PoolArea', 'MiscVal', 'MoSold', 'YrSold'
-]
+            y_pred = full_pipeline.predict(X_pred)
 
-categorical_columns_original = [
-    'MSZoning', 'Street', 'Alley', 'LotShape', 'LandContour', 'Utilities',
-    'LotConfig', 'LandSlope', 'Neighborhood', 'Condition1', 'Condition2',
-    'BldgType', 'HouseStyle', 'RoofStyle', 'RoofMatl', 'Exterior1st',
-    'Exterior2nd', 'MasVnrType', 'ExterQual', 'ExterCond', 'Foundation',
-    'BsmtQual', 'BsmtCond', 'BsmtExposure', 'BsmtFinType1', 'BsmtFinType2',
-    'Heating', 'HeatingQC', 'CentralAir', 'Electrical', 'KitchenQual',
-    'Functional', 'FireplaceQu', 'GarageType', 'GarageFinish', 'GarageQual',
-    'GarageCond', 'PavedDrive', 'PoolQC', 'Fence', 'MiscFeature',
-    'SaleType', 'SaleCondition'
-]
+            st.subheader("🏡 Предсказанные цены")
+            st.write(y_pred)
 
-# Удаляем те, что в drop_columns
-numerical_features = [col for col in numerical_columns_original if col not in drop_columns]
-categorical_features = [col for col in categorical_columns_original if col not in drop_columns]
+            # Метрики если есть SalePrice
+            if y_true is not None:
+                from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+                rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+                mae = mean_absolute_error(y_true, y_pred)
+                r2 = r2_score(y_true, y_pred)
+                rmsle = np.sqrt(mean_squared_error(np.log1p(y_true), np.log1p(y_pred)))
 
-st.info(f"Модель использует {len(numerical_features)} числовых и {len(categorical_features)} категориальных признаков")
+                st.subheader("📊 Метрики")
+                st.write(f"RMSE: {rmse:.2f}")
+                st.write(f"MAE: {mae:.2f}")
+                st.write(f"R²: {r2:.3f}")
+                st.write(f"RMSLE: {rmsle:.4f}")
 
-# ========== СОЗДАНИЕ ПРЕПРОЦЕССОРА ==========
-def create_preprocessor():
-    """Создает препроцессор такой же, как при обучении"""
-    
-    # Имьютер для заполнения пропусков
-    imputer = ColumnTransformer(
-        transformers=[
-            ("numerical_features", SimpleImputer(strategy="median"), numerical_features),
-            ("categorical_features", SimpleImputer(strategy="most_frequent"), categorical_features)
-        ],
-        verbose_feature_names_out=False,
-        remainder='passthrough'
-    )
-    
-    # Трансформер для удаления колонок
-    imputer_drop = ColumnTransformer(
-        transformers=[("drop", "drop", drop_columns)],
-        verbose_feature_names_out=False,
-        remainder='passthrough'
-    )
-    
-    # Кодировщик и скейлер
-    encoder_and_scaler = ColumnTransformer(
-        transformers=[
-            ('encoder', ce.CatBoostEncoder(), categorical_features),
-            ('scaler', StandardScaler(), numerical_features)
-        ],
-        verbose_feature_names_out=False,
-        remainder='passthrough'
-    )
-    
-    # Полный пайплайн
-    preprocessor = Pipeline([
-        ('imputer_drop', imputer_drop),
-        ("imputer", imputer),
-        ("encoder_and_scaler", encoder_and_scaler)
-    ])
-    
-    return preprocessor
+        except Exception as e:
+            st.error(f"Ошибка при предсказании: {e}")
 
-# ========== ФОРМА ДЛЯ РУЧНОГО ВВОДА ==========
-st.header("📝 Ручной ввод данных")
+else:
+    st.info("Загрузите CSV, чтобы получить предсказания")
 
-# Создаем словарь для значений по умолчанию
+# -----------------------------
+# Ручной ввод для одного дома
+# -----------------------------
+st.header("📝 Ручной ввод данных для одного дома")
+
+# Ввод основных числовых колонок
 default_values = {}
+default_values['OverallQual'] = st.slider("Общее качество (OverallQual)", 1, 10, 7)
+default_values['GrLivArea'] = st.number_input("Жилая площадь (GrLivArea)", 500, 5000, 1500)
+default_values['TotalBsmtSF'] = st.number_input("Площадь подвала (TotalBsmtSF)", 0, 3000, 1000)
+default_values['YearBuilt'] = st.number_input("Год постройки (YearBuilt)", 1900, 2024, 2000)
+default_values['LotArea'] = st.number_input("Площадь участка (LotArea)", 1000, 50000, 10000)
+default_values['BedroomAbvGr'] = st.slider("Спален (BedroomAbvGr)", 0, 8, 3)
 
-# Основные числовые признаки
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    default_values['OverallQual'] = st.slider("Общее качество (OverallQual)", 1, 10, 7)
-    default_values['GrLivArea'] = st.number_input("Жилая площадь (GrLivArea)", 500, 5000, 1500)
-    default_values['TotalBsmtSF'] = st.number_input("Площадь подвала (TotalBsmtSF)", 0, 3000, 1000)
-    
-with col2:
-    default_values['YearBuilt'] = st.number_input("Год постройки (YearBuilt)", 1900, 2024, 2000)
-    default_values['LotArea'] = st.number_input("Площадь участка (LotArea)", 1000, 50000, 10000)
-    default_values['BedroomAbvGr'] = st.slider("Спален (BedroomAbvGr)", 0, 8, 3)
-    
-with col3:
-    default_values['Fireplaces'] = st.slider("Камины (Fireplaces)", 0, 4, 1)
-    default_values['GarageArea'] = st.number_input("Площадь гаража (GarageArea)", 0, 1500, 500)
-    default_values['WoodDeckSF'] = st.number_input("Площадь террасы (WoodDeckSF)", 0, 1000, 0)
-
-# Категориальные признаки
-with st.expander("📋 Категориальные признаки"):
-    cat_col1, cat_col2 = st.columns(2)
-    
-    with cat_col1:
-        default_values['MSZoning'] = st.selectbox("Зонирование (MSZoning)", 
-            ['RL', 'RM', 'C (all)', 'FV', 'RH'])
-        default_values['Street'] = st.selectbox("Тип улицы (Street)", ['Pave', 'Grvl'])
-        default_values['CentralAir'] = st.selectbox("Кондиционер (CentralAir)", ['Y', 'N'])
-        default_values['KitchenQual'] = st.selectbox("Качество кухни (KitchenQual)", 
-            ['Ex', 'Gd', 'TA', 'Fa', 'Po'])
-        
-    with cat_col2:
-        default_values['Neighborhood'] = st.selectbox("Район (Neighborhood)", 
-            ['NAmes', 'CollgCr', 'OldTown', 'Edwards', 'Somerst', 'Gilbert', 'NridgHt'])
-        default_values['BsmtQual'] = st.selectbox("Качество подвала (BsmtQual)", 
-            ['Ex', 'Gd', 'TA', 'Fa', 'Po', 'NA'])
-        default_values['GarageType'] = st.selectbox("Тип гаража (GarageType)", 
-            ['Attchd', 'Detchd', 'BuiltIn', 'CarPort', 'Basment', 'NA'])
-
-# Остальные значения по умолчанию
-for col in numerical_features:
-    if col not in default_values:
-        if col == 'MSSubClass': default_values[col] = 60
-        elif col == 'LotFrontage': default_values[col] = 70.0
-        elif col == 'OverallCond': default_values[col] = 5
-        elif col == 'MasVnrArea': default_values[col] = 0.0
-        elif col == 'BsmtFinSF2': default_values[col] = 0.0
-        elif col == 'BsmtUnfSF': default_values[col] = 500.0
-        elif col == 'LowQualFinSF': default_values[col] = 0.0
-        elif col == 'BsmtFullBath': default_values[col] = 0.0
-        elif col == 'BsmtHalfBath': default_values[col] = 0.0
-        elif col == 'HalfBath': default_values[col] = 1.0
-        elif col == 'KitchenAbvGr': default_values[col] = 1.0
-        elif col == 'ScreenPorch': default_values[col] = 0.0
-        elif col == 'PoolArea': default_values[col] = 0.0
-        elif col == 'MiscVal': default_values[col] = 0.0
-        elif col == 'MoSold': default_values[col] = 6.0
-        elif col == 'YrSold': default_values[col] = 2023.0
-        else: default_values[col] = 0.0
-
-for col in categorical_features:
-    if col not in default_values:
-        if col == 'Alley': default_values[col] = 'NA'
-        elif col == 'LandContour': default_values[col] = 'Lvl'
-        elif col == 'Utilities': default_values[col] = 'AllPub'
-        elif col == 'LotConfig': default_values[col] = 'Inside'
-        elif col == 'LandSlope': default_values[col] = 'Gtl'
-        elif col == 'Condition1': default_values[col] = 'Norm'
-        elif col == 'Condition2': default_values[col] = 'Norm'
-        elif col == 'RoofStyle': default_values[col] = 'Gable'
-        elif col == 'RoofMatl': default_values[col] = 'CompShg'
-        elif col == 'Exterior1st': default_values[col] = 'VinylSd'
-        elif col == 'Exterior2nd': default_values[col] = 'VinylSd'
-        elif col == 'ExterCond': default_values[col] = 'TA'
-        elif col == 'BsmtExposure': default_values[col] = 'No'
-        elif col == 'BsmtFinType1': default_values[col] = 'Unf'
-        elif col == 'Heating': default_values[col] = 'GasA'
-        elif col == 'HeatingQC': default_values[col] = 'TA'
-        elif col == 'Functional': default_values[col] = 'Typ'
-        elif col == 'GarageFinish': default_values[col] = 'Unf'
-        elif col == 'GarageCond': default_values[col] = 'TA'
-        elif col == 'Fence': default_values[col] = 'NA'
-        elif col == 'MiscFeature': default_values[col] = 'NA'
-        elif col == 'SaleType': default_values[col] = 'WD'
-        elif col == 'SaleCondition': default_values[col] = 'Normal'
-        else: default_values[col] = 'NA'
+# Ввод категориальных колонок (попробуем взять минимальный набор)
+default_values['MSZoning'] = st.selectbox("Зонирование (MSZoning)", ['RL', 'RM', 'C (all)', 'FV', 'RH'])
+default_values['Street'] = st.selectbox("Тип улицы (Street)", ['Pave', 'Grvl'])
+default_values['CentralAir'] = st.selectbox("Кондиционер (CentralAir)", ['Y', 'N'])
+default_values['KitchenQual'] = st.selectbox("Качество кухни (KitchenQual)", ['Ex', 'Gd', 'TA', 'Fa', 'Po'])
+default_values['Neighborhood'] = st.selectbox("Район (Neighborhood)", ['NAmes', 'CollgCr', 'OldTown', 'Edwards', 'Somerst', 'Gilbert', 'NridgHt'])
+default_values['BsmtQual'] = st.selectbox("Качество подвала (BsmtQual)", ['Ex', 'Gd', 'TA', 'Fa', 'Po', 'NA'])
+default_values['GarageType'] = st.selectbox("Тип гаража (GarageType)", ['Attchd', 'Detchd', 'BuiltIn', 'CarPort', 'Basment', 'NA'])
 
 # Кнопка предсказания
-if st.button("🎯 Предсказать цену", type="primary", use_container_width=True):
-    if model is None:
-        st.error("Модель не загружена!")
-        st.stop()
-    
-    with st.spinner("Обрабатываю данные..."):
+if st.button("🎯 Предсказать цену для этого дома"):
+    if full_pipeline is not None:
         try:
-            # Создаем DataFrame с ВСЕМИ оригинальными колонками
-            input_data = {col: None for col in all_original_columns}
-            
-            # Заполняем значениями из формы
-            for col, value in default_values.items():
-                if col in input_data:
-                    input_data[col] = value
-            
-            # Создаем DataFrame
-            df_input = pd.DataFrame([input_data])
-            
-            # Добавляем ID
-            df_input['Id'] = 999
-            
-            # Создаем и обучаем препроцессор на лету
-            # В реальном приложении нужно сохранить обученный препроцессор
-            st.warning("⚠️ Создаю препроцессор... Для продакшена нужно сохранить обученный препроцессор")
-            
-            # Для демо: создаем простую обработку
-            X_processed = df_input.copy()
-            
-            # Удаляем колонки
-            X_processed = X_processed.drop(columns=[col for col in drop_columns if col in X_processed.columns])
-            
-            # Заполняем пропуски
-            for col in numerical_features:
-                if col in X_processed.columns:
-                    X_processed[col] = X_processed[col].fillna(X_processed[col].median() if X_processed[col].notna().any() else 0)
-            
-            for col in categorical_features:
-                if col in X_processed.columns:
-                    X_processed[col] = X_processed[col].fillna('NA')
-            
-            # Делаем предсказание (упрощенное - без CatBoostEncoder)
-            try:
-                prediction = model.predict(X_processed[numerical_features + categorical_features])[0]
-                st.success(f"## 🏡 Предсказанная цена: **${prediction:,.0f}**")
-            except:
-                # Если не работает, покажем упрощенное предсказание
-                st.info("Использую упрощенное предсказание на основе основных признаков")
-                simple_pred = (default_values['OverallQual'] * 10000 + 
-                              default_values['GrLivArea'] * 50 + 
-                              default_values['YearBuilt'] * 100)
-                st.success(f"## 🏡 Ориентировочная цена: **${simple_pred:,.0f}**")
-            
+            # Создаем DataFrame с одной строкой
+            df_input = pd.DataFrame([default_values])
+            y_pred_manual = full_pipeline.predict(df_input)[0]
+            st.success(f"🏡 Предсказанная цена: ${y_pred_manual:,.0f}")
         except Exception as e:
-            st.error(f"Ошибка: {str(e)[:200]}")
-
+            st.error(f"Ошибка при предсказании: {e}")
+    else:
+        st.error("Pipeline не загружен")
